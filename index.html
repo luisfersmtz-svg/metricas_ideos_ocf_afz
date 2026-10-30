@@ -146,7 +146,7 @@ function csv(name,rows){const body=rows.map(r=>r.map(c=>{c=c==null?'':String(c);
 /* ================= estado ================= */
 const S={cfg:{url:'',token:''},demo:false,videos:[],metricas:[],config:{},view:'inicio',params:{},brand:'Ambas',loaded:false,lastSync:null,win:60,pf:'Todos',q:'',cap:null,fs:null,
  sinReg:new Set(),sel:new Set(),showSR:false,
- rank:{metric:'vis',period:'30d',red:'Todas',tipo:'Todos',creador:''},cmp:{a:'mes',b:'mes_ant',red:'Todas',aFrom:'',aTo:'',bFrom:'',bTo:''},vMap:new Map(),mMap:new Map(),error:''};
+ rank:{metric:'vis',period:'30d',red:'Todas',tipo:'Todos',creador:''},cmp:{a:'mes',b:'mes_ant',red:'Todas',aFrom:'',aTo:'',bFrom:'',bTo:'',aMes:null,aAnio:null,bMes:null,bAnio:null},vMap:new Map(),mMap:new Map(),error:''};
 
 /* ================= datos y cálculos ================= */
 function metricObj(m){const g=k=>num(m[k]);return {vis:g('VISUALIZACIONES'),alc:g('ALCANCE'),likes:g('LIKES'),com:g('COMENTARIOS'),comp:g('COMPARTIDOS'),rep:g('REPOST'),guard:g('GUARDADOS'),t:g('TIEMPO_REPRO_S')};}
@@ -189,12 +189,15 @@ function opts(cfgKey,field){const s=new Set((S.config[cfgKey]||[]));S.videos.for
 const dl=(id,list)=>`<datalist id="${id}">${list.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`;
 
 /* periodos */
-const PERIODS=[['mes','Este mes'],['mes_ant','Mes anterior'],['30d','Últimos 30 días'],['30d_ant','30 días previos'],['90d','Últimos 90 días'],['sem','Esta semana'],['sem_ant','Semana anterior'],['anio','Este año'],['anio_ant','Año anterior'],['todo','Todo el historial'],['custom','Rango libre…']];
+const PERIODS=[['mes','Este mes'],['mes_ant','Mes anterior'],['mes_esp','Mes y año específico…'],['7d','Últimos 7 días'],['15d','Últimos 15 días'],['30d','Últimos 30 días'],['30d_ant','30 días previos'],['90d','Últimos 90 días'],['sem','Esta semana'],['sem_ant','Semana anterior'],['anio','Este año'],['anio_ant','Año anterior'],['todo','Todo el historial'],['custom','Rango con calendario…']];
 function periodRange(k,from,to){
   const t=sod(new Date()),y=t.getFullYear(),m=t.getMonth();const dow=(t.getDay()+6)%7;
   switch(k){
     case 'mes':return [new Date(y,m,1),new Date(y,m+1,0)];
     case 'mes_ant':return [new Date(y,m-1,1),new Date(y,m,0)];
+    case '7d':return [addDays(t,-6),t];
+    case '15d':return [addDays(t,-14),t];
+    case 'mes_esp':{const mm=parseInt(from),yy=parseInt(to);if(isNaN(mm)||isNaN(yy))return [null,null];return [new Date(yy,mm,1),new Date(yy,mm+1,0)];}
     case '30d':return [addDays(t,-29),t];
     case '30d_ant':return [addDays(t,-59),addDays(t,-30)];
     case '90d':return [addDays(t,-89),t];
@@ -431,7 +434,7 @@ function viewRankings(){
   const seg=(key,vals)=>`<div class="seg">${vals.map(v=>`<button class="${R[key]===v?'on':''}" onclick="App.rset('${key}','${v}')">${v}</button>`).join('')}</div>`;
   const fm=k=>k==='eng'||k==='ret'?fP:fN;
   return `<div class="ph"><div><h1>Rankings y rendimiento relativo</h1><p class="sub">Cada fila es un video en una red, con su último corte capturado.</p></div><button class="btn" onclick="App.exportRank()">⭳ Exportar CSV</button></div>
-  <section class="card"><div class="filters"><div class="fl"><span class="lbl">Periodo (fecha de publicación)</span><select class="in" onchange="App.rset('period',this.value)">${PERIODS.filter(p=>p[0]!=='custom').map(([k,l])=>`<option value="${k}" ${R.period===k?'selected':''}>${l}</option>`).join('')}</select></div>
+  <section class="card"><div class="filters"><div class="fl"><span class="lbl">Periodo (fecha de publicación)</span><select class="in" onchange="App.rset('period',this.value)">${PERIODS.filter(p=>p[0]!=='custom'&&p[0]!=='mes_esp').map(([k,l])=>`<option value="${k}" ${R.period===k?'selected':''}>${l}</option>`).join('')}</select></div>
    <div class="fl"><span class="lbl">Red</span>${seg('red',['Todas','IG','FB','TT'])}</div><div class="fl"><span class="lbl">Contenido</span>${seg('tipo',['Todos','Propio','Colaboración'])}</div>
    <div class="fl"><span class="lbl">Creador</span><input class="in" style="width:200px" value="${esc(R.creador)}" placeholder="Filtrar creador…" onchange="App.rset('creador',this.value)"></div></div>
    <div class="tabs">${Object.entries(RMET).map(([k,[l]])=>`<button class="${R.metric===k?'on':''}" onclick="App.rset('metric','${k}')">${l}</button>`).join('')}<span class="mono mut" style="margin-left:auto;align-self:center;font-size:12px">${all.length} registros calculados</span></div>
@@ -441,8 +444,10 @@ function viewRankings(){
 }
 
 /* ================= Comparar ================= */
+function cmpArgs(side){const C=S.cmp;return C[side]==='mes_esp'?[C[side],C[side+'Mes'],C[side+'Anio']]:[C[side],C[side+'From'],C[side+'To']];}
 function cmpData(key,from,to){
-  const rg=periodRange(key,from,to);const vids=brandVideos().filter(v=>key==='todo'||inRange(v.pub,rg));
+  const rg=periodRange(key,from,to);const incompleto=(key==='custom'||key==='mes_esp')&&(!rg[0]||!rg[1]);
+  const vids=incompleto?[]:brandVideos().filter(v=>key==='todo'||inRange(v.pub,rg));
   const rows=statRows(vids,S.cmp.red);const a=agg(rows);a.videos=vids.length;a.rows=rows;a.range=rg;a.buckets=buckets(rg,rows);return a;
 }
 function buckets(rg,rows){
@@ -451,12 +456,15 @@ function buckets(rg,rows){
   const out=Array.from({length:n},(_,i)=>({label:monthly?MESES[(s.getMonth()+i)%12]:'Sem '+(i+1),vis:0}));
   rows.forEach(r=>{if(!r.v.pub)return;const i=monthly?((r.v.pub.getFullYear()-s.getFullYear())*12+r.v.pub.getMonth()-s.getMonth()):Math.floor(Math.round((r.v.pub-s)/864e5)/7);if(out[i])out[i].vis+=r.n.vis||0;});return out;
 }
+function yearsList(){const ys=new Set([new Date().getFullYear()]);S.videos.forEach(v=>{if(v.pub)ys.add(v.pub.getFullYear());});const a=[...ys];const mn=Math.min(...a),mx=Math.max(...a);const out=[];for(let y=mx;y>=mn;y--)out.push(y);return out;}
 function periodSel(side){
-  const C=S.cmp;const k=C[side];
-  return `<div class="fl"><span class="lbl">Periodo ${side==='a'?'A (base)':'B (comparado)'}</span><select class="in" onchange="App.cset('${side}',this.value)">${PERIODS.map(([v,l])=>`<option value="${v}" ${k===v?'selected':''}>${l}</option>`).join('')}</select>${k==='custom'?`<div style="display:flex;gap:6px"><input class="in" type="date" value="${esc(C[side+'From'])}" onchange="App.cset('${side}From',this.value)"><input class="in" type="date" value="${esc(C[side+'To'])}" onchange="App.cset('${side}To',this.value)"></div>`:''}</div>`;
+  const C=S.cmp;const k=C[side];let extra='';
+  if(k==='mes_esp'){extra=`<div style="display:flex;gap:6px"><select class="in" onchange="App.cset('${side}Mes',this.value)">${MESES.map((m,i)=>`<option value="${i}" ${+C[side+'Mes']===i?'selected':''}>${m}</option>`).join('')}</select><select class="in" onchange="App.cset('${side}Anio',this.value)">${yearsList().map(y=>`<option value="${y}" ${+C[side+'Anio']===y?'selected':''}>${y}</option>`).join('')}</select></div>`;}
+  if(k==='custom'){extra=`<div style="display:flex;gap:6px;align-items:center"><label class="fl" style="flex:1"><span class="lbl">Desde</span><input class="in" type="date" value="${esc(C[side+'From'])}" onchange="App.cset('${side}From',this.value)"></label><label class="fl" style="flex:1"><span class="lbl">Hasta</span><input class="in" type="date" value="${esc(C[side+'To'])}" onchange="App.cset('${side}To',this.value)"></label></div>`;}
+  return `<div class="fl"><span class="lbl">Periodo ${side==='a'?'A (base)':'B (comparado)'}</span><select class="in" onchange="App.cset('${side}',this.value)">${PERIODS.map(([v,l])=>`<option value="${v}" ${k===v?'selected':''}>${l}</option>`).join('')}</select>${extra}</div>`;
 }
 function viewComparar(){
-  const C=S.cmp;const A=cmpData(C.a,C.aFrom,C.aTo),B=cmpData(C.b,C.bFrom,C.bTo);
+  const C=S.cmp;const A=cmpData(...cmpArgs('a')),B=cmpData(...cmpArgs('b'));
   const nb=Math.max(A.buckets.length,B.buckets.length);const mx=Math.max(1,...A.buckets.map(x=>x.vis),...B.buckets.map(x=>x.vis));
   const K=[['Videos publicados',A.videos,B.videos,fN,'%'],['Vistas totales',A.vis,B.vis,fN,'%'],['Alcance neto',A.alc,B.alc,fN,'%'],['Engagement prom.',A.eng,B.eng,fP,'pp'],['Retención prom.',A.ret,B.ret,fP,'pp'],['Interacciones',A.inter,B.inter,fN,'%']];
   const top5=(P)=>P.rows.slice().sort((x,y)=>(y.n.vis||0)-(x.n.vis||0)).slice(0,5);
@@ -578,9 +586,16 @@ const App={
   async saveNotes(id){const t=$('#notas').value;try{await api('updateVideo',{video:{ID_VIDEO:id,NOTAS:t}});S.vMap.get(id).NOTAS=t;toast('Nota guardada.');}catch(e){toast('No se guardó: '+e.message,true);}},
   copy(t){navigator.clipboard?navigator.clipboard.writeText(t).then(()=>toast('Copiado.')):toast('Copia manualmente: '+t);},
   rset(k,v){S.rank[k]=v;render();},
-  cset(k,v){S.cmp[k]=v;render();},
+  cset(k,v){
+    const C=S.cmp;C[k]=v;const t=sod(new Date());
+    if(k==='a'||k==='b'){
+      if(v==='mes_esp'&&C[k+'Mes']==null){const d=k==='a'?new Date(t.getFullYear(),t.getMonth(),1):new Date(t.getFullYear(),t.getMonth()-1,1);C[k+'Mes']=d.getMonth();C[k+'Anio']=d.getFullYear();}
+      if(v==='custom'&&!C[k+'From']){C[k+'From']=iso(addDays(t,-29));C[k+'To']=iso(t);}
+    }
+    if(k.endsWith('From')||k.endsWith('To')){const sd=k[0];const f=parseDate(C[sd+'From']),e=parseDate(C[sd+'To']);if(f&&e&&f>e){const x=C[sd+'From'];C[sd+'From']=C[sd+'To'];C[sd+'To']=x;toast('Las fechas estaban al revés; las acomodé.');}}
+    render();},
   exportRank(){const rows=rankRows();const f=RMET[S.rank.metric][0];csv('ranking.csv',[['Pos','ID','Tema','Marca','Red','Fecha','Dur (s)','Corte','Vistas','Alcance','Likes','Interacciones','Engagement %','Retención %'],...rows.map((r,i)=>[i+1,r.v.ID_VIDEO,r.v.TEMA,r.v.MARCA,r.red,fD(r.v.pub),r.v.dur,r.corte,r.n.vis,r.n.alc,r.n.likes,r.inter,r.eng==null?'':r.eng.toFixed(2),r.ret==null?'':r.ret.toFixed(2)])]);},
-  exportCmp(){const C=S.cmp;const A=cmpData(C.a,C.aFrom,C.aTo),B=cmpData(C.b,C.bFrom,C.bTo);const r=x=>x==null?'':x;csv('comparativa.csv',[['Métrica','Periodo A '+rangeLbl(A.range),'Periodo B '+rangeLbl(B.range)],['Videos publicados',A.videos,B.videos],['Vistas',A.vis,B.vis],['Alcance',A.alc,B.alc],['Engagement %',r(A.eng&&A.eng.toFixed(2)),r(B.eng&&B.eng.toFixed(2))],['Retención %',r(A.ret&&A.ret.toFixed(2)),r(B.ret&&B.ret.toFixed(2))],['Interacciones',A.inter,B.inter]]);},
+  exportCmp(){const A=cmpData(...cmpArgs('a')),B=cmpData(...cmpArgs('b'));const r=x=>x==null?'':x;csv('comparativa.csv',[['Métrica','Periodo A '+rangeLbl(A.range),'Periodo B '+rangeLbl(B.range)],['Videos publicados',A.videos,B.videos],['Vistas',A.vis,B.vis],['Alcance',A.alc,B.alc],['Engagement %',r(A.eng&&A.eng.toFixed(2)),r(B.eng&&B.eng.toFixed(2))],['Retención %',r(A.ret&&A.ret.toFixed(2)),r(B.ret&&B.ret.toFixed(2))],['Interacciones',A.inter,B.inter]]);},
   saveDocs(){const o={};['lin','ocf','afz'].forEach(k=>{o[k]=($('#doc_'+k).value||'').trim();});localStorage.setItem('mv_docs',JSON.stringify(o));toast('Link guardado en este navegador.');render();},
   showConnect(){
     $('#modalBox').innerHTML=`<h2>Conexión con tu hoja</h2><p class="sub">Se guarda solo en este navegador. Nada de esto va dentro de la página pública.</p>
